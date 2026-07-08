@@ -32,12 +32,34 @@ services:
     image: hermes-agent
     container_name: hermes
     restart: unless-stopped
-    network_mode: host
+    # Bridge networking (not host): on Docker Desktop for macOS, host mode
+    # binds into the Linux VM, so a dashboard on the VM's loopback is
+    # unreachable from the Mac. Bridge + an explicit port publish fixes that.
+    # Outbound platform connections (Telegram/email/feishu) work fine on bridge.
+    # The publish is pinned to 127.0.0.1, so the dashboard is reachable ONLY
+    # from this Mac's loopback — same trust boundary as the old localhost bind.
+    ports:
+      - "127.0.0.1:9119:9119"
     volumes:
       - ~/.hermes:/opt/data
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
+      # Dashboard runs as an s6 service INSIDE this container (localhost-only).
+      # This replaces the former separate `dashboard` container, which — because
+      # the per-profile gateway reconciler runs in every container over the
+      # shared ~/.hermes volume — booted a second full gateway and polled
+      # Telegram with the same bot token, causing permanent `getUpdates`
+      # conflicts. One container = one gateway = one poller.
+      # Bind 0.0.0.0 inside the container so the published port (above)
+      # can reach it; access is still restricted to this Mac's loopback by
+      # the 127.0.0.1 publish. INSECURE=1 is required because the dashboard's
+      # auth gate fails closed on a non-loopback bind when no auth provider is
+      # registered — here the network-level 127.0.0.1 publish is the guard.
+      - HERMES_DASHBOARD=1
+      - HERMES_DASHBOARD_HOST=0.0.0.0
+      - HERMES_DASHBOARD_PORT=9119
+      - HERMES_DASHBOARD_INSECURE=1
       # To expose the OpenAI-compatible API server beyond localhost,
       # uncomment BOTH lines (API_SERVER_KEY is mandatory for auth):
       # - API_SERVER_HOST=0.0.0.0
@@ -59,18 +81,3 @@ services:
       # - GOOGLE_CHAT_SERVICE_ACCOUNT_JSON=${GOOGLE_CHAT_SERVICE_ACCOUNT_JSON}
       # - GOOGLE_CHAT_ALLOWED_USERS=${GOOGLE_CHAT_ALLOWED_USERS}
     command: ["gateway", "run"]
-
-  dashboard:
-    image: hermes-agent
-    container_name: hermes-dashboard
-    restart: unless-stopped
-    network_mode: host
-    depends_on:
-      - gateway
-    volumes:
-      - ~/.hermes:/opt/data
-    environment:
-      - HERMES_UID=${HERMES_UID:-10000}
-      - HERMES_GID=${HERMES_GID:-10000}
-    # Localhost-only. For remote access, tunnel via `ssh -L 9119:localhost:9119`.
-    command: ["dashboard", "--host", "127.0.0.1", "--no-open"]
