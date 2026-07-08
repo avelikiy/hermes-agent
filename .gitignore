@@ -116,3 +116,11 @@ scripts/out/
 # stores the published notes. They are not a build artifact and must never be
 # committed to the repo root. See the hermes-release skill.
 RELEASE_v*.md
+
+# Local tooling / operator scaffolding — never part of the project source.
+# Beads issue tracker and great_cto audit config live in the working copy but
+# belong to the operator, not the upstream repo. Timestamped *.bak-* files are
+# throwaway config backups made before an edit.
+.beads/
+.great_cto/
+*.bak-*
