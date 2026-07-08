@@ -2868,6 +2868,13 @@ def _messaging_platform_payload(
 ) -> dict[str, Any]:
     platform_id = entry["id"]
     gateway_running = get_running_pid() is not None
+    if not gateway_running and _GATEWAY_HEALTH_URL:
+        try:
+            gateway_running, remote_runtime = _probe_gateway_health()
+            if gateway_running and remote_runtime:
+                runtime = remote_runtime
+        except Exception:
+            gateway_running = False
     runtime_platforms = runtime.get("platforms") if runtime else {}
     runtime_platform = (
         runtime_platforms.get(platform_id, {})
