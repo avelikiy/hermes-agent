@@ -459,6 +459,42 @@ prompt_caching:
 #                           #   enable_thinking: false
 
 # =============================================================================
+# Cost-Cascade Router (Advanced — Experimental, OFF by default)
+# =============================================================================
+# Routes each turn to the CHEAPEST model whose capability clears the task's
+# difficulty, and cascades up the cost ladder only when a model fails. Most
+# turns are simple and run cheap; only hard or failing ones reach your flagship.
+#
+# Disabled by default: with routing.enabled false (or this block absent) the
+# agent uses your normal model selection unchanged. Turn it on deliberately.
+#
+# How it works:
+#   - Each turn is classified SIMPLE / MEDIUM / HARD by cheap heuristics
+#     (message length, code blocks, images, tool count, reasoning keywords).
+#   - Models in `models` are ranked by blended $/Mtok (from Hermes pricing data).
+#   - route() returns the cheapest model whose capability >= the task tier.
+#   - On failure the agent escalates one rung up the ladder.
+#
+# routing:
+#   enabled: false
+#   # Cost ladder candidates. Your main model is always added automatically and
+#   # sits at the top as the ultimate fallback. List cheap → capable.
+#   models:
+#     - "glm-4-flash"
+#     - "glm-4.6"
+#     - "claude-opus-4-8"
+#   # Override the auto-detected capability tier for a model (substring match).
+#   # Tiers: SIMPLE | MEDIUM | HARD
+#   model_tiers:
+#     my-local-7b: SIMPLE
+#   # Eval log for Phase-3 learning (set "" to disable logging).
+#   log: "~/.hermes/router_log.jsonl"
+#   # Classification thresholds (characters).
+#   classify:
+#     long_threshold: 1800    # >= this many chars → HARD
+#     short_threshold: 280    # <= this + lookup keyword → SIMPLE
+
+# =============================================================================
 # Persistent Memory
 # =============================================================================
 # Bounded curated memory injected into the system prompt every session.

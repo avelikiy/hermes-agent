@@ -4856,6 +4856,32 @@ class AIAgent:
         from agent.chat_completion_helpers import handle_max_iterations
         return handle_max_iterations(self, messages, api_call_count)
 
+    def _get_cost_router(self):
+        """Lazily build the opt-in cost-cascade router from config.
+
+        Returns ``None`` when ``routing.enabled`` is false/absent (the default),
+        so the normal model-selection path is untouched. Built once per agent
+        instance and cached; any error degrades to ``None`` (never breaks a turn).
+        """
+        cached = getattr(self, "_cost_router", "__unset__")
+        if cached != "__unset__":
+            return cached
+        router = None
+        try:
+            from agent.cost_router import from_config
+            from hermes_cli.config import load_config_readonly
+            router = from_config(
+                load_config_readonly() or {},
+                provider=self.provider,
+                base_url=self.base_url,
+                main_model=self.model,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("cost_router: disabled (build failed: %s)", exc)
+            router = None
+        self._cost_router = router
+        return router
+
     def run_conversation(
         self,
         user_message: str,
@@ -4865,9 +4891,41 @@ class AIAgent:
         stream_callback: Optional[callable] = None,
         persist_user_message: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Forwarder — see ``agent.conversation_loop.run_conversation``."""
+        """Forwarder — see ``agent.conversation_loop.run_conversation``.
+
+        When the opt-in cost-cascade router is enabled, the turn's model is
+        chosen here (cheapest model that clears the task's difficulty) and the
+        agent's configured model is restored afterwards. Disabled by default.
+        """
         from agent.conversation_loop import run_conversation
-        return run_conversation(self, user_message, system_message, conversation_history, task_id, stream_callback, persist_user_message)
+
+        router = self._get_cost_router()
+        if router is None:
+            return run_conversation(self, user_message, system_message, conversation_history, task_id, stream_callback, persist_user_message)
+
+        original_model = self.model
+        routed = None
+        try:
+            routed = router.route(user_message or "")
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("cost_router: route() failed, using %s: %s", original_model, exc)
+            routed = None
+
+        if not routed or routed == original_model:
+            return run_conversation(self, user_message, system_message, conversation_history, task_id, stream_callback, persist_user_message)
+
+        from agent.cost_router import classify_task
+        tier = classify_task(user_message or "")
+        logger.info("cost_router: %s -> %s (was %s)", tier.name, routed, original_model)
+        ok = False
+        try:
+            self.model = routed
+            result = run_conversation(self, user_message, system_message, conversation_history, task_id, stream_callback, persist_user_message)
+            ok = True
+            return result
+        finally:
+            self.model = original_model
+            router.record_outcome(message=user_message or "", model=routed, tier=tier, success=ok)
 
     def chat(self, message: str, stream_callback: Optional[callable] = None) -> str:
         """
