@@ -14,14 +14,26 @@
 set -uo pipefail
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-VOLUME="${DISK_GUARD_VOLUME:-/System/Volumes/Data}"
+# macOS keeps the user volume separate; on Linux (and in a container) / is the
+# one that matters. Pick whichever exists so the same script runs on the Mac and
+# on the server.
+if [[ -n "${DISK_GUARD_VOLUME:-}" ]]; then
+  VOLUME="$DISK_GUARD_VOLUME"
+elif [[ -d /System/Volumes/Data ]]; then
+  VOLUME="/System/Volumes/Data"
+else
+  VOLUME="/"
+fi
 WARN_GB="${DISK_GUARD_WARN_GB:-25}"
 CRIT_GB="${DISK_GUARD_CRIT_GB:-10}"
 QUIET_H="${DISK_GUARD_QUIET_H:-12}"
 STATE="${DISK_GUARD_STATE:-$HERMES_HOME/disk-guard.state}"
 
-free_gb=$(df -g "$VOLUME" 2>/dev/null | awk 'NR==2 {print $4}')
-[[ -z "${free_gb:-}" ]] && { echo "disk-guard: cannot read df for $VOLUME" >&2; exit 1; }
+# `df -g` is a BSD-ism and silently absent on Linux; -k is POSIX everywhere, so
+# read KB and convert. Integer division is fine — we compare whole GB.
+free_kb=$(df -Pk "$VOLUME" 2>/dev/null | awk 'NR==2 {print $4}')
+[[ -z "${free_kb:-}" ]] && { echo "disk-guard: cannot read df for $VOLUME" >&2; exit 1; }
+free_gb=$(( free_kb / 1024 / 1024 ))
 
 if   (( free_gb < CRIT_GB )); then level=crit; icon="🔴"; word="КРИТИЧНО"
 elif (( free_gb < WARN_GB )); then level=warn; icon="🟡"; word="мало места"

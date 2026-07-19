@@ -31,7 +31,13 @@ services:
     build: .
     image: hermes-agent
     container_name: hermes
-    restart: unless-stopped
+    # DECOMMISSIONED: Hermes now runs on the holdra-sin server
+    # (see docker-compose.server.yml). Two gateways sharing one Telegram bot
+    # token fight over getUpdates — the exact failure this repo already fixed
+    # once. `restart: "no"` stops a Docker Desktop restart from silently
+    # resurrecting this instance behind the server's back. Bring it up manually
+    # only after stopping the server one.
+    restart: "no"
     # Bridge networking (not host): on Docker Desktop for macOS, host mode
     # binds into the Linux VM, so a dashboard on the VM's loopback is
     # unreachable from the Mac. Bridge + an explicit port publish fixes that.

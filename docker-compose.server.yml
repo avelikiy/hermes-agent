@@ -1,0 +1,48 @@
+# Hermes on a shared Linux server (holdra-sin), alongside another project's stack.
+#
+# Differences from the macOS docker-compose.yml, and why:
+#
+#   * bridge networking, not host. The Mac file uses host mode because Docker
+#     Desktop cannot publish from a host-networked container; on Linux host mode
+#     works, but here it would put Hermes' listeners straight onto a box that is
+#     already running caddy on 80/443 and a full postgres/redis stack. Bridge
+#     plus one explicit publish keeps the surface to exactly one port.
+#
+#   * the dashboard publish is pinned to 127.0.0.1. It runs with
+#     HERMES_DASHBOARD_INSECURE=1 (no app-level auth) and stores API keys, so it
+#     must never be reachable from the internet. Access it over an SSH tunnel:
+#         ssh -L 9119:127.0.0.1:9119 root@<server>
+#
+#   * explicit cpu/memory limits. Hermes is a co-tenant here: without limits an
+#     agent turn or a feed sweep could starve the neighbouring services. 1 of 2
+#     cores and 2 GB of 8 leaves the other project its headroom, and matches the
+#     limits its own containers already declare.
+#
+# Usage:  docker compose -f docker-compose.server.yml up -d
+services:
+  gateway:
+    image: hermes-agent:latest
+    container_name: hermes
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9119:9119"
+    volumes:
+      - /opt/hermes-data:/opt/data
+    environment:
+      - HERMES_DASHBOARD=1
+      - HERMES_DASHBOARD_HOST=0.0.0.0   # reachable from the published port
+      - HERMES_DASHBOARD_PORT=9119
+      - HERMES_DASHBOARD_INSECURE=1     # guarded by the 127.0.0.1 publish above
+    command: ["gateway", "run"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+    logging:
+      # The disk filling up is what took this stack down once already; uncapped
+      # container logs are a slow version of the same failure.
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
