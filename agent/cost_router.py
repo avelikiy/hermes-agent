@@ -373,6 +373,23 @@ def from_config(
                 except (TypeError, ValueError):
                     pass
 
+    # routing.hard_keywords / routing.simple_keywords — operator-supplied
+    # difficulty signals. The built-in lists are English-only, so a non-English
+    # deployment would classify every turn as SIMPLE/MEDIUM and never reach the
+    # HARD rungs. We EXTEND the defaults rather than replace them, so adding
+    # Russian stems keeps the English ones working.
+    for key, defaults in (
+        ("hard_keywords", _HARD_KEYWORDS),
+        ("simple_keywords", _SIMPLE_KEYWORDS),
+    ):
+        raw_kw = routing.get(key)
+        if isinstance(raw_kw, (list, tuple)):
+            extra = tuple(
+                str(k).strip().lower() for k in raw_kw if str(k).strip()
+            )
+            if extra:
+                classify_kwargs[key] = defaults + extra
+
     return CostRouter(
         ladder=ladder,
         fallback_model=main_model,

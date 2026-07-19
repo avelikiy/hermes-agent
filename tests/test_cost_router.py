@@ -222,3 +222,58 @@ def test_from_config_tier_overrides_and_classify():
     r = from_config(cfg, cost_fn=_cost_fn({"weird-model": 1.0}))
     assert r.ladder[0].cap is Tier.HARD
     assert r.classify_kwargs.get("long_threshold") == 10
+
+
+def test_from_config_extends_hard_keywords():
+    """routing.hard_keywords must EXTEND the built-in list, not replace it.
+
+    The built-ins are English-only, so a Russian deployment classified every
+    turn as SIMPLE/MEDIUM and never reached the HARD rungs — the flagship was
+    unreachable in practice. Operators add their own stems; the English ones
+    must keep working alongside.
+    """
+    cfg = {
+        "routing": {
+            "enabled": True,
+            "models": ["flash", "opus"],
+            "log": "",
+            "hard_keywords": ["отрефактор", "докажи"],
+        }
+    }
+    r = from_config(cfg, cost_fn=_cost_fn({"flash": 0.1, "opus": 15.0}))
+    # operator-supplied stem now reaches the HARD rung
+    assert r.route("отрефактори модуль и докажи инвариант") == "opus"
+    # built-in English signal still works
+    assert r.route("refactor this module and prove the invariant") == "opus"
+    # unrelated short lookup stays cheap
+    assert r.route("что такое MTU") == "flash"
+
+
+def test_from_config_extends_simple_keywords():
+    cfg = {
+        "routing": {
+            "enabled": True,
+            "models": ["flash", "opus"],
+            "log": "",
+            "simple_keywords": ["переведи"],
+        }
+    }
+    r = from_config(cfg, cost_fn=_cost_fn({"flash": 0.1, "opus": 15.0}))
+    assert classify_task(
+        "переведи это на английский",
+        simple_keywords=r.classify_kwargs["simple_keywords"],
+    ) is Tier.SIMPLE
+    # built-in simple signal survives
+    assert classify_task(
+        "what is the capital of France",
+        simple_keywords=r.classify_kwargs["simple_keywords"],
+    ) is Tier.SIMPLE
+
+
+def test_from_config_ignores_empty_keyword_lists():
+    """Empty/absent lists must leave the defaults untouched."""
+    cfg = {"routing": {"enabled": True, "models": ["flash"], "log": "",
+                       "hard_keywords": [], "simple_keywords": None}}
+    r = from_config(cfg, cost_fn=_cost_fn({"flash": 0.1}))
+    assert "hard_keywords" not in r.classify_kwargs
+    assert "simple_keywords" not in r.classify_kwargs
