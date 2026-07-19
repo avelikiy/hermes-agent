@@ -35,3 +35,14 @@ data/
 # Compose/profile runtime state (bind-mounted; avoid ownership/secret issues)
 hermes-config/
 runtime/
+
+# Local ~/.hermes backup tarballs (scripts/backup-hermes-home.sh). Operator
+# data, not a build input — 1.6 GB of these were being baked into the image,
+# bloating it and failing layer extraction on a constrained disk.
+backups/
+*.tar.gz
+
+# Operator-local tooling / throwaway state — never build inputs.
+.beads/
+.great_cto/
+*.bak-*
