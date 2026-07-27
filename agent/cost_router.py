@@ -284,6 +284,37 @@ class CostRouter:
                 return e.model
         return None
 
+    @staticmethod
+    def turn_succeeded(result: Any) -> bool:
+        """Judge a finished turn from ``run_conversation``'s result.
+
+        Phase 3 learns which rung is good enough for which tier, so the signal
+        it trains on has to mean "the cheap model actually did the job". The
+        call site used to set success=True whenever no exception escaped, which
+        made every logged outcome a success (51/51 in a live deployment) and
+        left the log unable to distinguish a good answer from an empty one.
+
+        A turn counts as successful only when the loop completed, did not flag
+        failure, and produced non-empty content — the same "did we get a real
+        answer back" check an empty-patch cascade uses to decide whether to
+        escalate. Unknown shapes are treated as success so a future change to
+        the result type degrades to the old lenient behaviour rather than
+        flooding the log with false failures.
+        """
+        if not isinstance(result, dict):
+            # Older/simpler call paths return the response text directly.
+            if isinstance(result, str):
+                return bool(result.strip())
+            return True
+        if result.get("failed") or result.get("error"):
+            return False
+        if result.get("completed") is False:
+            return False
+        if "final_response" in result:
+            resp = result.get("final_response")
+            return bool(resp and str(resp).strip())
+        return True
+
     def record_outcome(
         self,
         *,

@@ -4915,13 +4915,21 @@ class AIAgent:
             return run_conversation(self, user_message, system_message, conversation_history, task_id, stream_callback, persist_user_message)
 
         from agent.cost_router import classify_task
-        tier = classify_task(user_message or "")
+        # Classify with the router's own kwargs. route() applies
+        # classify_kwargs (operator-supplied hard/simple keywords, thresholds);
+        # re-classifying without them logged a tier the model was never picked
+        # for, so the log showed impossible pairs like HARD -> a MEDIUM-tier
+        # model and Phase 3 would train on mislabelled rows.
+        tier = classify_task(user_message or "", **router.classify_kwargs)
         logger.info("cost_router: %s -> %s (was %s)", tier.name, routed, original_model)
         ok = False
         try:
             self.model = routed
             result = run_conversation(self, user_message, system_message, conversation_history, task_id, stream_callback, persist_user_message)
-            ok = True
+            # "No exception" is not "the cheap model did the job" — judge the
+            # actual result, or every row lands as a success and the log
+            # teaches nothing.
+            ok = router.turn_succeeded(result)
             return result
         finally:
             self.model = original_model

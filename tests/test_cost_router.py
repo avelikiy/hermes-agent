@@ -277,3 +277,37 @@ def test_from_config_ignores_empty_keyword_lists():
     r = from_config(cfg, cost_fn=_cost_fn({"flash": 0.1}))
     assert "hard_keywords" not in r.classify_kwargs
     assert "simple_keywords" not in r.classify_kwargs
+
+
+# ── turn_succeeded ───────────────────────────────────────────────────────────
+
+
+def test_turn_succeeded_real_answer():
+    assert CostRouter.turn_succeeded(
+        {"final_response": "готово", "completed": True, "failed": False}
+    ) is True
+
+
+@pytest.mark.parametrize("result", [
+    {"final_response": None, "completed": False, "failed": True, "error": "boom"},
+    {"final_response": "", "completed": True, "failed": False},
+    {"final_response": "   ", "completed": True, "failed": False},
+    {"final_response": "ok", "completed": False},
+    {"final_response": "ok", "error": "rate limited"},
+])
+def test_turn_succeeded_rejects_non_answers(result):
+    """An empty or failed turn must not be logged as a success — that is the
+    signal Phase 3 trains on."""
+    assert CostRouter.turn_succeeded(result) is False
+
+
+def test_turn_succeeded_plain_string_paths():
+    assert CostRouter.turn_succeeded("some answer") is True
+    assert CostRouter.turn_succeeded("") is False
+
+
+def test_turn_succeeded_unknown_shape_is_lenient():
+    """Unknown result types degrade to the old lenient behaviour rather than
+    flooding the log with false failures."""
+    assert CostRouter.turn_succeeded(object()) is True
+    assert CostRouter.turn_succeeded({"messages": []}) is True
