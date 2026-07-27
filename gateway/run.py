@@ -3283,6 +3283,43 @@ class GatewayRunner:
             pass
         return None
 
+    @staticmethod
+    def _checkpoint_kwargs(user_config: dict | None = None) -> dict:
+        """Translate the ``checkpoints`` config block into AIAgent kwargs.
+
+        ``AIAgent`` takes ``checkpoints_enabled`` as a plain parameter that
+        defaults to False and never consults config itself, so without this the
+        gateway silently ran with checkpoints off no matter what config.yaml
+        said — ``checkpoints: {enabled: true}`` only ever took effect for
+        ``hermes chat`` (see cli.py, which reads the same block). Gateway
+        sessions are exactly where checkpoints matter most: that is where the
+        agent edits files unattended, on a schedule, with subagents.
+
+        Returns an empty dict when disabled so the call site can splat it
+        unconditionally and keep AIAgent's own defaults.
+        """
+        try:
+            cfg = user_config if isinstance(user_config, dict) else _load_gateway_config()
+            cp = (cfg or {}).get("checkpoints") or {}
+            if not cp.get("enabled"):
+                return {}
+            out: dict = {"checkpoints_enabled": True}
+            # Only forward limits that are actually set; AIAgent has its own
+            # defaults and we don't want to override them with None.
+            for cfg_key, kwarg in (
+                ("max_snapshots", "checkpoint_max_snapshots"),
+                ("max_total_size_mb", "checkpoint_max_total_size_mb"),
+                ("max_file_size_mb", "checkpoint_max_file_size_mb"),
+            ):
+                val = cp.get(cfg_key)
+                if isinstance(val, int) and val > 0:
+                    out[kwarg] = val
+            return out
+        except Exception:
+            # Checkpoints are a safety net, not a hard dependency — a malformed
+            # config must not stop the gateway from answering.
+            return {}
+
     def _snapshot_running_agents(self) -> Dict[str, Any]:
         return {
             session_key: agent
@@ -17708,6 +17745,7 @@ class GatewayRunner:
                     gateway_session_key=session_key,
                     session_db=self._session_db,
                     fallback_model=self._fallback_model,
+                    **self._checkpoint_kwargs(user_config),
                 )
                 if _cache_lock and _cache is not None:
                     with _cache_lock:
