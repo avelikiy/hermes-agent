@@ -311,3 +311,63 @@ def test_turn_succeeded_unknown_shape_is_lenient():
     flooding the log with false failures."""
     assert CostRouter.turn_succeeded(object()) is True
     assert CostRouter.turn_succeeded({"messages": []}) is True
+
+
+# ── retry_is_safe / escalation config ────────────────────────────────────────
+
+
+def test_retry_is_safe_for_an_empty_answer_with_no_tools():
+    """The one genuinely safe case: nothing ran, nothing was delivered."""
+    assert CostRouter.retry_is_safe(
+        {"final_response": "", "messages": [{"role": "user", "content": "hi"}]}
+    ) is True
+
+
+@pytest.mark.parametrize("result", [
+    # A tool ran — re-running replays the side effect.
+    {"final_response": "", "messages": [{"role": "tool", "content": "wrote file"}]},
+    {"final_response": "", "messages": [{"role": "assistant", "tool_calls": [{"id": "1"}]}]},
+    {"final_response": "", "messages": [{"role": "tool", "tool_call_id": "1"}]},
+    # Content already reached the user — a retry would append a second reply.
+    {"final_response": "partial answer", "messages": []},
+])
+def test_retry_is_unsafe_after_side_effects_or_delivery(result):
+    assert CostRouter.retry_is_safe(result) is False
+
+
+@pytest.mark.parametrize("result", ["text", None, 42, object()])
+def test_retry_is_unsafe_for_unknown_shapes(result):
+    """Unknown shapes cost a missed optimisation, never a duplicated effect."""
+    assert CostRouter.retry_is_safe(result) is False
+
+
+def test_escalation_is_off_by_default():
+    """It can double the price of a turn, so it must be opted into."""
+    cfg = {"routing": {"enabled": True, "models": ["flash", "opus"], "log": ""}}
+    r = from_config(cfg, cost_fn=_cost_fn({"flash": 0.1, "opus": 15.0}))
+    assert r.escalate_on_failure is False
+    assert r.max_escalations == 1
+
+
+def test_escalation_config_is_read():
+    cfg = {"routing": {"enabled": True, "models": ["flash", "opus"], "log": "",
+                       "escalate_on_failure": True, "max_escalations": 2}}
+    r = from_config(cfg, cost_fn=_cost_fn({"flash": 0.1, "opus": 15.0}))
+    assert r.escalate_on_failure is True
+    assert r.max_escalations == 2
+
+
+@pytest.mark.parametrize("bad,expected", [("x", 1), (None, 1), (-5, 0), (1.9, 1)])
+def test_malformed_max_escalations_falls_back(bad, expected):
+    cfg = {"routing": {"enabled": True, "models": ["flash"], "log": "",
+                       "max_escalations": bad}}
+    r = from_config(cfg, cost_fn=_cost_fn({"flash": 0.1}))
+    assert r.max_escalations == expected
+
+
+def test_escalate_walks_up_then_stops_at_the_top():
+    cfg = {"routing": {"enabled": True, "models": ["flash", "mid", "opus"], "log": ""}}
+    r = from_config(cfg, cost_fn=_cost_fn({"flash": 0.1, "mid": 1.0, "opus": 15.0}))
+    assert r.escalate("flash") == "mid"
+    assert r.escalate("mid") == "opus"
+    assert r.escalate("opus") is None

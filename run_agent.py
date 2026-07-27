@@ -4922,18 +4922,57 @@ class AIAgent:
         # model and Phase 3 would train on mislabelled rows.
         tier = classify_task(user_message or "", **router.classify_kwargs)
         logger.info("cost_router: %s -> %s (was %s)", tier.name, routed, original_model)
-        ok = False
+
+        current = routed
+        escalations = 0
+        persist = persist_user_message
         try:
-            self.model = routed
-            result = run_conversation(self, user_message, system_message, conversation_history, task_id, stream_callback, persist_user_message)
-            # "No exception" is not "the cheap model did the job" — judge the
-            # actual result, or every row lands as a success and the log
-            # teaches nothing.
-            ok = router.turn_succeeded(result)
-            return result
+            while True:
+                self.model = current
+                try:
+                    result = run_conversation(self, user_message, system_message, conversation_history, task_id, stream_callback, persist)
+                except BaseException:
+                    # A crash is an outcome too; without this the log would
+                    # only ever contain turns that returned.
+                    router.record_outcome(
+                        message=user_message or "", model=current, tier=tier,
+                        success=False, escalated=current != routed,
+                    )
+                    raise
+
+                # "No exception" is not "the cheap model did the job" — judge
+                # the actual result, or every row lands as a success and the
+                # log teaches nothing.
+                ok = router.turn_succeeded(result)
+                router.record_outcome(
+                    message=user_message or "", model=current, tier=tier,
+                    success=ok, escalated=current != routed,
+                )
+                if ok or not router.escalate_on_failure:
+                    return result
+                if escalations >= router.max_escalations:
+                    logger.info("cost_router: %s failed, escalation budget spent", current)
+                    return result
+                # Re-running replays whatever the first attempt already did.
+                if not router.retry_is_safe(result):
+                    logger.info(
+                        "cost_router: %s failed but retry is unsafe (side effects or "
+                        "delivered content) — keeping the result", current,
+                    )
+                    return result
+                nxt = router.escalate(current)
+                if not nxt:
+                    logger.info("cost_router: %s failed at the top of the ladder", current)
+                    return result
+                escalations += 1
+                logger.info("cost_router: escalating %s -> %s (%d/%d)",
+                            current, nxt, escalations, router.max_escalations)
+                current = nxt
+                # The user turn is already in the history from the first
+                # attempt; persisting again would duplicate it.
+                persist = False
         finally:
             self.model = original_model
-            router.record_outcome(message=user_message or "", model=routed, tier=tier, success=ok)
 
     def chat(self, message: str, stream_callback: Optional[callable] = None) -> str:
         """

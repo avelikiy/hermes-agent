@@ -119,3 +119,111 @@ def test_get_cost_router_builds_when_enabled(monkeypatch):
     router = run_agent.AIAgent._get_cost_router(stub)
     assert isinstance(router, CostRouter)
     assert router.ladder  # built a non-empty ladder from real pricing
+
+
+# ── outcome-based escalation ─────────────────────────────────────────────────
+
+
+def _esc_router(tmp_path, **kw):
+    """Router whose cheapest rung clears every tier, so routing is predictable
+    and the test isolates escalation behaviour."""
+    return CostRouter(
+        ladder=[LadderEntry("flash", 0.1, Tier.HARD), LadderEntry("opus", 15.0, Tier.HARD)],
+        fallback_model="opus",
+        log_path=tmp_path / "router.jsonl",
+        **kw,
+    )
+
+
+def _run(monkeypatch, router, results):
+    """Drive the forwarder with a scripted sequence of loop results."""
+    calls = []
+
+    def fake_run_conversation(self, user_message, system_message=None,
+                              conversation_history=None, task_id=None,
+                              stream_callback=None, persist_user_message=True, *a, **k):
+        calls.append({"model": self.model, "persist": persist_user_message})
+        return results[len(calls) - 1]
+
+    import agent.conversation_loop as cl
+    monkeypatch.setattr(cl, "run_conversation", fake_run_conversation)
+    out = run_agent.AIAgent.run_conversation(_stub(router), "нужен ответ")
+    return calls, out
+
+
+def test_failed_turn_escalates_one_rung(monkeypatch, tmp_path):
+    router = _esc_router(tmp_path, escalate_on_failure=True, max_escalations=1)
+    empty = {"final_response": "", "messages": []}
+    good = {"final_response": "готово", "messages": []}
+    calls, out = _run(monkeypatch, router, [empty, good])
+
+    assert [c["model"] for c in calls] == ["flash", "opus"]
+    assert out is good
+    # The user turn was already persisted by the first attempt.
+    assert calls[1]["persist"] is False
+
+
+def test_successful_turn_does_not_escalate(monkeypatch, tmp_path):
+    router = _esc_router(tmp_path, escalate_on_failure=True, max_escalations=1)
+    good = {"final_response": "готово", "messages": []}
+    calls, _ = _run(monkeypatch, router, [good])
+    assert [c["model"] for c in calls] == ["flash"]
+
+
+def test_no_escalation_when_disabled(monkeypatch, tmp_path):
+    router = _esc_router(tmp_path, escalate_on_failure=False)
+    empty = {"final_response": "", "messages": []}
+    calls, _ = _run(monkeypatch, router, [empty])
+    assert [c["model"] for c in calls] == ["flash"]
+
+
+def test_no_escalation_after_tool_side_effects(monkeypatch, tmp_path):
+    """A failed turn that already ran tools must not be replayed."""
+    router = _esc_router(tmp_path, escalate_on_failure=True, max_escalations=1)
+    with_tools = {"final_response": "", "messages": [{"role": "tool", "content": "wrote"}]}
+    calls, _ = _run(monkeypatch, router, [with_tools])
+    assert [c["model"] for c in calls] == ["flash"]
+
+
+def test_escalation_budget_is_respected(monkeypatch, tmp_path):
+    """max_escalations caps retries even when more rungs remain."""
+    router = CostRouter(
+        ladder=[LadderEntry("flash", 0.1, Tier.HARD),
+                LadderEntry("mid", 1.0, Tier.HARD),
+                LadderEntry("opus", 15.0, Tier.HARD)],
+        fallback_model="opus", log_path=tmp_path / "r.jsonl",
+        escalate_on_failure=True, max_escalations=1,
+    )
+    empty = {"final_response": "", "messages": []}
+    calls, _ = _run(monkeypatch, router, [empty, empty])
+    assert [c["model"] for c in calls] == ["flash", "mid"]
+
+
+def test_outcomes_are_logged_for_every_attempt(monkeypatch, tmp_path):
+    import json
+    router = _esc_router(tmp_path, escalate_on_failure=True, max_escalations=1)
+    empty = {"final_response": "", "messages": []}
+    good = {"final_response": "готово", "messages": []}
+    _run(monkeypatch, router, [empty, good])
+
+    rows = [json.loads(l) for l in router.log_path.read_text().splitlines() if l.strip()]
+    assert [(r["model"], r["success"], r["escalated"]) for r in rows] == [
+        ("flash", False, False),
+        ("opus", True, True),
+    ]
+
+
+def test_crash_is_recorded_as_failure(monkeypatch, tmp_path):
+    import json
+    router = _esc_router(tmp_path, escalate_on_failure=True)
+
+    def boom(self, user_message, *a, **k):
+        raise RuntimeError("provider exploded")
+
+    import agent.conversation_loop as cl
+    monkeypatch.setattr(cl, "run_conversation", boom)
+    with pytest.raises(RuntimeError):
+        run_agent.AIAgent.run_conversation(_stub(router), "hi")
+
+    rows = [json.loads(l) for l in router.log_path.read_text().splitlines() if l.strip()]
+    assert rows[-1]["success"] is False

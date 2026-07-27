@@ -243,6 +243,11 @@ class CostRouter:
     fallback_model: Optional[str] = None
     log_path: Optional[Path] = None
     classify_kwargs: dict = field(default_factory=dict)
+    # Outcome-based escalation: retry a failed turn one rung up instead of
+    # relying solely on the up-front difficulty guess. Off by default — it can
+    # double the cost of a turn, and only pays off where retries are safe.
+    escalate_on_failure: bool = False
+    max_escalations: int = 1
 
     def route(
         self,
@@ -315,6 +320,40 @@ class CostRouter:
             return bool(resp and str(resp).strip())
         return True
 
+    @staticmethod
+    def retry_is_safe(result: Any) -> bool:
+        """Whether a failed turn can be re-run on a stronger model.
+
+        Escalation re-runs the *whole* turn, so it is only safe when the first
+        attempt had no effect the user or the world can see. Two things make a
+        retry unsafe:
+
+        * **Tool calls happened.** Re-running replays them — a second file
+          write, a second shell command, a second outbound message. A cheaper
+          answer is never worth doing someone's side effects twice.
+        * **Content already reached the user.** Gateways stream tokens as they
+          arrive, so a partially delivered answer cannot be taken back; a retry
+          would append a second reply to the same question.
+
+        Conservative by construction: anything unrecognised returns False, so
+        an unknown result shape costs a missed optimisation rather than a
+        duplicated side effect.
+        """
+        if not isinstance(result, dict):
+            return False
+        msgs = result.get("messages")
+        if isinstance(msgs, list):
+            for m in msgs:
+                if not isinstance(m, dict):
+                    continue
+                if m.get("role") == "tool" or m.get("tool_calls") or m.get("tool_call_id"):
+                    return False
+        # A non-empty response means tokens were (or are being) delivered.
+        resp = result.get("final_response")
+        if resp and str(resp).strip():
+            return False
+        return True
+
     def record_outcome(
         self,
         *,
@@ -372,6 +411,8 @@ def from_config(
           classify:
             long_threshold: 1800
             short_threshold: 280
+          escalate_on_failure: false  # retry a failed turn one rung up
+          max_escalations: 1          # retries per turn, not per ladder
     """
     routing = (config or {}).get("routing") if isinstance(config, dict) else None
     if not isinstance(routing, dict) or not routing.get("enabled"):
@@ -421,11 +462,18 @@ def from_config(
             if extra:
                 classify_kwargs[key] = defaults + extra
 
+    try:
+        max_esc = int(routing.get("max_escalations", 1))
+    except (TypeError, ValueError):
+        max_esc = 1
+
     return CostRouter(
         ladder=ladder,
         fallback_model=main_model,
         log_path=log_path,
         classify_kwargs=classify_kwargs,
+        escalate_on_failure=bool(routing.get("escalate_on_failure", False)),
+        max_escalations=max(0, max_esc),
     )
 
 
