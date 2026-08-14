@@ -1257,16 +1257,50 @@ def _setup_worktree(repo_root: str = None) -> Optional[Dict[str, str]]:
         except Exception as e:
             logger.debug("Error copying .worktreeinclude entries: %s", e)
 
+    # Record the branch point. --patch-out diffs against it, and resolving it
+    # later is unreliable: the agent may have committed, so the worktree's HEAD
+    # is no longer where it started.
+    _base_sha = ""
+    try:
+        _p = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo_root,
+            capture_output=True, text=True, timeout=10,
+        )
+        if _p.returncode == 0:
+            _base_sha = _p.stdout.strip()
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug("Could not record worktree base commit: %s", e)
+
     info = {
         "path": str(wt_path),
         "branch": branch_name,
         "repo_root": repo_root,
+        "base": _base_sha,
     }
 
     print(f"\033[32m✓ Worktree created:\033[0m {wt_path}")
     print(f"  Branch: {branch_name}")
 
     return info
+
+
+def _export_worktree_patch(info: Dict[str, str], out_path: str) -> None:
+    """Write the worktree's changes to *out_path* before it is torn down.
+
+    Runs from atexit, so it must never raise: a failed export should cost the
+    user a patch, not mask the exit status of the session that produced it.
+    """
+    try:
+        from hermes_cli.worktree_patch import PatchError, write_patch
+
+        wrote, message = write_patch(info["path"], out_path, info.get("base") or None)
+        colour = "\033[32m✓" if wrote else "\033[33m•"
+        print(f"\n{colour} {message}\033[0m")
+    except PatchError as exc:
+        print(f"\n\033[31m✗ Не удалось сохранить патч: {exc}\033[0m")
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"\n\033[31m✗ Не удалось сохранить патч: {exc}\033[0m")
+        logger.debug("patch export failed", exc_info=True)
 
 
 def _worktree_has_unpushed_commits(worktree_path: str, timeout: int = 10) -> bool:
@@ -15512,6 +15546,7 @@ def main(
     resume: str = None,
     worktree: bool = False,
     w: bool = False,
+    patch_out: str = None,
     checkpoints: bool = False,
     pass_session_id: bool = False,
     ignore_user_config: bool = False,
@@ -15578,7 +15613,9 @@ def main(
         # ── Git worktree isolation (#652) ──
         # Create an isolated worktree so this agent instance doesn't collide
         # with other agents working on the same repo.
-        use_worktree = worktree or w or CLI_CONFIG.get("worktree", False)
+        # --patch-out implies isolation: exporting a patch only means anything
+        # if the edits were never applied to the real tree in the first place.
+        use_worktree = worktree or w or bool(patch_out) or CLI_CONFIG.get("worktree", False)
         wt_info = None
         if use_worktree:
             # Prune stale worktrees from crashed/killed sessions
@@ -15589,6 +15626,11 @@ def main(
             if wt_info:
                 _active_worktree = wt_info
                 os.environ["TERMINAL_CWD"] = wt_info["path"]
+                if patch_out:
+                    # Registered before the cleanup handler so it runs after it
+                    # — atexit is LIFO — otherwise the worktree (and every
+                    # uncommitted edit in it) is gone before the diff is taken.
+                    atexit.register(_export_worktree_patch, wt_info, patch_out)
                 atexit.register(_cleanup_worktree, wt_info)
             else:
                 # Worktree was explicitly requested but setup failed —

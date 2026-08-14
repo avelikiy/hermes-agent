@@ -165,6 +165,16 @@ def build_top_level_parser():
         default=False,
         help="Run in an isolated git worktree (for parallel agents)",
     )
+    parser.add_argument(
+        "--patch-out",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Write the session's changes to PATH as a git patch instead of "
+            "leaving them applied. Implies --worktree: the agent proposes, "
+            "you apply. Use when the agent must not touch the real tree."
+        ),
+    )
     _inherited_flag(
         parser,
         "--accept-hooks",
@@ -313,6 +323,16 @@ def build_top_level_parser():
         action="store_true",
         default=argparse.SUPPRESS,
         help="Run in an isolated git worktree (for parallel agents on the same repo)",
+    )
+    chat_parser.add_argument(
+        "--patch-out",
+        metavar="PATH",
+        default=argparse.SUPPRESS,
+        help=(
+            "Write the session's changes to PATH as a git patch instead of "
+            "leaving them applied. Implies --worktree: the agent proposes, "
+            "you apply. Use when the agent must not touch the real tree."
+        ),
     )
     _inherited_flag(
         chat_parser,
