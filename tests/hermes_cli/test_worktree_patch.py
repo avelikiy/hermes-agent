@@ -128,3 +128,21 @@ def test_patch_out_implies_worktree():
     from pathlib import Path
     src = Path("cli.py").read_text(encoding="utf-8")
     assert "bool(patch_out)" in src, "--patch-out must force use_worktree"
+
+
+def test_patch_export_is_registered_after_cleanup():
+    """atexit is LIFO, so the export must be registered last to run first.
+
+    Registered the other way round, cleanup deletes the worktree — and every
+    uncommitted edit in it — before the diff is taken, and the export fails
+    with "worktree not found". This ordering was wrong in the first cut and
+    only showed up in an end-to-end run.
+    """
+    from pathlib import Path
+    src = Path("cli.py").read_text(encoding="utf-8")
+    cleanup = src.index("atexit.register(_cleanup_worktree, wt_info)")
+    export = src.index("atexit.register(_export_worktree_patch, wt_info, patch_out)")
+    assert cleanup < export, (
+        "_export_worktree_patch must be registered AFTER _cleanup_worktree "
+        "so LIFO runs the export first"
+    )

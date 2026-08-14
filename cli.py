@@ -15626,12 +15626,13 @@ def main(
             if wt_info:
                 _active_worktree = wt_info
                 os.environ["TERMINAL_CWD"] = wt_info["path"]
-                if patch_out:
-                    # Registered before the cleanup handler so it runs after it
-                    # — atexit is LIFO — otherwise the worktree (and every
-                    # uncommitted edit in it) is gone before the diff is taken.
-                    atexit.register(_export_worktree_patch, wt_info, patch_out)
                 atexit.register(_cleanup_worktree, wt_info)
+                if patch_out:
+                    # Registered *after* cleanup so it runs *before* it: atexit
+                    # is LIFO. Get this backwards and the worktree — with every
+                    # uncommitted edit in it — is deleted before the diff is
+                    # taken, and the export fails with "worktree not found".
+                    atexit.register(_export_worktree_patch, wt_info, patch_out)
             else:
                 # Worktree was explicitly requested but setup failed —
                 # don't silently run without isolation.
