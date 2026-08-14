@@ -74,3 +74,18 @@ def test_message_names_the_setting_to_change():
 
 def test_message_survives_a_broken_counter():
     assert "$0.0000" in format_message(None, 1.0)
+
+
+@pytest.mark.parametrize("limit,expected", [
+    (2.0, "$2.00"),
+    (0.5, "$0.50"),
+    (0.0001, "$0.0001"),   # two decimals would render this as "$0.00"
+    (0.000001, "$0.000001"),
+])
+def test_small_limits_survive_formatting(limit, expected):
+    """A cap shown as $0.00 reads as a broken config rather than the value set."""
+    assert expected in format_message(0.003, limit)
+
+
+def test_no_limit_renders_as_dash():
+    assert "—" in format_message(1.0, None)

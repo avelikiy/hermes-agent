@@ -4477,6 +4477,18 @@ def run_conversation(
                 messages.append({"role": "assistant", "content": final_response})
                 break
     
+    if final_response is None and _turn_exit_reason == "cost_limit_reached":
+        # Explain the stop instead of summarising it. The iteration-exhaustion
+        # path below spends one more API call to have the model summarise; here
+        # that would be self-defeating — the cap exists to stop spending, and a
+        # turn cut for cost must not cost extra to report. Without this the
+        # caller gets an empty response and the run looks hung rather than
+        # deliberately halted.
+        final_response = format_cost_limit_message(
+            getattr(agent, "session_estimated_cost_usd", 0.0),
+            getattr(agent, "max_session_cost_usd", None),
+        )
+
     if final_response is None and (
         api_call_count >= agent.max_iterations
         or agent.iteration_budget.remaining <= 0

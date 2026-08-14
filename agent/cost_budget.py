@@ -68,7 +68,16 @@ def format_message(spent_usd: Any, limit_usd: Optional[float]) -> str:
         spent = float(spent_usd or 0.0)
     except (TypeError, ValueError):
         spent = 0.0
-    lim = f"${limit_usd:.2f}" if limit_usd is not None else "—"
+    # Two decimals hide small caps: a 0.0001 limit renders as "$0.00", which
+    # reads as a broken config rather than the value actually set. Widen the
+    # precision until the number survives rounding.
+    if limit_usd is None:
+        lim = "—"
+    else:
+        places = 2
+        while places < 8 and round(limit_usd, places) == 0:
+            places += 2
+        lim = f"${limit_usd:.{places}f}"
     return (
         f"Session spend limit reached (${spent:.4f} of {lim}). "
         "Stopping before the next model call. "
