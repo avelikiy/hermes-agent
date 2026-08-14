@@ -30,6 +30,10 @@ from typing import Any, Dict, List, Optional
 from agent.codex_responses_adapter import _summarize_user_message_for_log
 from agent.display import KawaiiSpinner
 from agent.error_classifier import FailoverReason, classify_api_error
+from agent.cost_budget import (
+    format_message as format_cost_limit_message,
+    limit_reached as cost_limit_reached,
+)
 from agent.iteration_budget import IterationBudget
 from agent.memory_manager import build_memory_context_block
 from agent.message_sanitization import (
@@ -810,6 +814,25 @@ def run_conversation(
                 agent._safe_print("\n⚡ Breaking out of tool loop due to interrupt...")
             break
         
+        # The money axis of the same budget. Checked here, before the call is
+        # made, so the cap bounds what the session commits to rather than what
+        # it has already been billed for; an iteration cap alone cannot do this
+        # because iterations and dollars are not proportional.
+        if cost_limit_reached(
+            getattr(agent, "session_estimated_cost_usd", 0.0),
+            getattr(agent, "max_session_cost_usd", None),
+        ):
+            _turn_exit_reason = "cost_limit_reached"
+            _cost_msg = format_cost_limit_message(
+                getattr(agent, "session_estimated_cost_usd", 0.0),
+                getattr(agent, "max_session_cost_usd", None),
+            )
+            logger.warning("%s", _cost_msg)
+            agent._emit_status(f"⚠️ {_cost_msg}")
+            if not agent.quiet_mode:
+                agent._safe_print(f"\n⚠️  {_cost_msg}")
+            break
+
         api_call_count += 1
         agent._api_call_count = api_call_count
         agent._touch_activity(f"starting API call #{api_call_count}")

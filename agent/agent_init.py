@@ -1553,6 +1553,21 @@ def init_agent(
     agent.session_estimated_cost_usd = 0.0
     agent.session_cost_status = "unknown"
     agent.session_cost_source = "none"
+
+    # Money cap for this session. The iteration budget bounds how many calls an
+    # agent may make; it says nothing about what they cost, so an unattended run
+    # on an expensive rung can drain an account while well inside its iteration
+    # count. None = uncapped (the default).
+    try:
+        from agent.cost_budget import parse_limit as _parse_cost_limit
+        from hermes_cli.config import load_config as _load_cost_cfg
+        agent.max_session_cost_usd = _parse_cost_limit(
+            cfg_get(_load_cost_cfg(), "agent", "max_session_cost_usd", default=None)
+        )
+    except Exception:
+        # A spend cap is a safety net; failing to read it must not stop the
+        # agent from starting.
+        agent.max_session_cost_usd = None
     
     # ── Ollama num_ctx injection ──
     # Ollama defaults to 2048 context regardless of the model's capabilities.
