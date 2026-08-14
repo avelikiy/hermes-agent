@@ -2091,6 +2091,7 @@ def cmd_chat(args):
         "image": getattr(args, "image", None),
         "resume": getattr(args, "resume", None),
         "worktree": getattr(args, "worktree", False),
+        "patch_out": getattr(args, "patch_out", None),
         "checkpoints": getattr(args, "checkpoints", False),
         "pass_session_id": getattr(args, "pass_session_id", False),
         "max_turns": getattr(args, "max_turns", None),
@@ -12232,6 +12233,7 @@ def _set_chat_arg_defaults(args) -> None:
         ("resume", None),
         ("continue_last", None),
         ("worktree", False),
+        ("patch_out", None),
     ]:
         if not hasattr(args, attr):
             setattr(args, attr, default)
@@ -15535,6 +15537,7 @@ Examples:
             ("toolsets", None),
             ("verbose", None),
             ("worktree", False),
+            ("patch_out", None),
         ]:
             if not hasattr(args, attr):
                 setattr(args, attr, default)
@@ -15552,6 +15555,7 @@ Examples:
             ("resume", None),
             ("continue_last", None),
             ("worktree", False),
+            ("patch_out", None),
         ]:
             if not hasattr(args, attr):
                 setattr(args, attr, default)

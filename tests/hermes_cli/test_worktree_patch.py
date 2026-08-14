@@ -94,3 +94,37 @@ def test_works_without_an_explicit_base(worktree):
     """Falls back sensibly when the base commit wasn't recorded."""
     (worktree["wt"] / "a.txt").write_text("base line\nlocal edit\n")
     assert "a.txt" in build_patch(str(worktree["wt"]), None)
+
+
+# ── flag plumbing ────────────────────────────────────────────────────────────
+
+
+def test_patch_out_reaches_cli_main():
+    """The flag existed and was parsed, but was dropped on the way to cli.main()
+    — the agent wrote straight into the repo and no patch appeared. Guard the
+    whole chain: parser -> args -> kwargs.
+    """
+    import inspect
+
+    import cli
+    from hermes_cli._parser import build_top_level_parser
+
+    parser, _subparsers, _chat = build_top_level_parser()
+    args = parser.parse_args(["chat", "-q", "hi", "--patch-out", "/tmp/x.patch"])
+    assert getattr(args, "patch_out", None) == "/tmp/x.patch"
+    # cli.main must be able to receive it.
+    assert "patch_out" in inspect.signature(cli.main).parameters
+    # ...and main.py must actually forward it.
+    src = (inspect.getsourcefile(cli.main) or "")
+    assert src, "cli.main source not found"
+    from pathlib import Path
+    fwd = Path("hermes_cli/main.py").read_text(encoding="utf-8")
+    assert '"patch_out": getattr(args, "patch_out", None)' in fwd
+
+
+def test_patch_out_implies_worktree():
+    """Exporting a patch is meaningless if the edits already landed in the real
+    tree, so the flag must force isolation on its own."""
+    from pathlib import Path
+    src = Path("cli.py").read_text(encoding="utf-8")
+    assert "bool(patch_out)" in src, "--patch-out must force use_worktree"
