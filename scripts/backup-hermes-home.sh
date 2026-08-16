@@ -30,13 +30,47 @@ restore_container() {
 }
 trap restore_container EXIT
 
+# --- Secrets ---------------------------------------------------------------
+# ~/.hermes holds live credentials: .env (provider keys, bot tokens),
+# secrets/ (service-account JSON), auth.json (provider credential store).
+# A plain tar of the directory copies all of them into an unencrypted archive
+# that then sits on disk indefinitely, gets synced, and — as happened here —
+# lands in a Docker build context. The backup is for state you cannot
+# regenerate; keys are not that, and they are the one thing worth stealing.
+#
+# Excluded by default. Set HERMES_BACKUP_INCLUDE_SECRETS=1 to override, which
+# is a reasonable choice for an archive you are about to encrypt yourself.
+INCLUDE_SECRETS="${HERMES_BACKUP_INCLUDE_SECRETS:-0}"
+# Expanded below as ${arr[@]+"${arr[@]}"}: under `set -u`, bash 3.2 (what
+# macOS ships) treats "${arr[@]}" on an empty array as an unbound variable and
+# aborts — which broke exactly the opt-in path this array is empty on.
+secret_excludes=()
+if [[ "$INCLUDE_SECRETS" != "1" ]]; then
+  base="$(basename "$HERMES_HOME")"
+  secret_excludes=(
+    --exclude="$base/.env"
+    --exclude="$base/.env.*"
+    --exclude="$base/auth.json"
+    --exclude="$base/secrets"
+  )
+fi
+
 tar \
   --exclude='.DS_Store' \
+  ${secret_excludes[@]+"${secret_excludes[@]}"} \
   -czf "$archive" \
   -C "$(dirname "$HERMES_HOME")" \
   "$(basename "$HERMES_HOME")"
 
 echo "$archive"
+
+if [[ "$INCLUDE_SECRETS" != "1" ]]; then
+  # Say this loudly: a restore from this archive starts an agent with no
+  # provider keys, and silently discovering that later is worse than the
+  # warning being noisy now.
+  echo "note: credentials excluded (.env, auth.json, secrets/) — restore will need them re-supplied." >&2
+  echo "      keep them somewhere encrypted; HERMES_BACKUP_INCLUDE_SECRETS=1 overrides." >&2
+fi
 
 # --- Retention -------------------------------------------------------------
 # Without this the directory grows without bound: each run adds ~400 MB and
