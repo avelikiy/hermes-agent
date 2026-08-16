@@ -31,13 +31,10 @@ services:
     build: .
     image: hermes-agent
     container_name: hermes
-    # DECOMMISSIONED: Hermes now runs on the holdra-sin server
-    # (see docker-compose.server.yml). Two gateways sharing one Telegram bot
-    # token fight over getUpdates — the exact failure this repo already fixed
-    # once. `restart: "no"` stops a Docker Desktop restart from silently
-    # resurrecting this instance behind the server's back. Bring it up manually
-    # only after stopping the server one.
-    restart: "no"
+    # This is the live deployment again (the Hetzner one is retired).
+    # Only ever run one gateway per bot token: two of them fight over
+    # getUpdates, which this repo has already had to fix once.
+    restart: unless-stopped
     # Bridge networking (not host): on Docker Desktop for macOS, host mode
     # binds into the Linux VM, so a dashboard on the VM's loopback is
     # unreachable from the Mac. Bridge + an explicit port publish fixes that.
@@ -48,6 +45,36 @@ services:
       - "127.0.0.1:9119:9119"
     volumes:
       - ~/.hermes:/opt/data
+      # Obsidian knowledge base. SOUL.md tells the agent to search here before
+      # answering anything about Alexander's projects and decisions, and to
+      # treat it as read-only — but that was only ever a request in a prompt,
+      # and after the migration the path did not exist in the container at all,
+      # so the instruction pointed at nothing.
+      #
+      # Mounting it :ro turns the request into an actual boundary: 2787 notes
+      # of personal and fund material the agent can read and cannot damage,
+      # enforced by the kernel rather than by the model's good behaviour.
+      - ~/Obsidian:/opt/obsidian/vault:ro
+      # ...except AI-OS, the agent's own workspace, which it is supposed to
+      # write to. A nested mount overrides the read-only parent, so write
+      # access is scoped to exactly this subtree. It is under git, so its
+      # edits stay reversible.
+      - ~/Obsidian/AI-OS:/opt/obsidian/vault/AI-OS
+    deploy:
+      resources:
+        limits:
+          # Kept from the server deployment: this bounds a runaway agent to a
+          # slice of the laptop rather than all of it. Measured usage in
+          # production was ~740 MB, so 2G is headroom, not a squeeze.
+          cpus: "2.0"
+          memory: 3G
+    logging:
+      # Uncapped container logs are a slow version of the disk-full failure
+      # that took this machine down once already.
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
@@ -62,6 +89,9 @@ services:
       # the 127.0.0.1 publish. INSECURE=1 is required because the dashboard's
       # auth gate fails closed on a non-loopback bind when no auth provider is
       # registered — here the network-level 127.0.0.1 publish is the guard.
+      # SOUL.md refers to this as the agent's read-write vault; it was empty,
+      # so the obsidian skill had nowhere to write.
+      - OBSIDIAN_VAULT_PATH=/opt/obsidian/vault/AI-OS
       - HERMES_DASHBOARD=1
       - HERMES_DASHBOARD_HOST=0.0.0.0
       - HERMES_DASHBOARD_PORT=9119
