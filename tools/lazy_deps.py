@@ -88,6 +88,13 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     "provider.azure_identity": ("azure-identity==1.25.3",),
 
     # ─── Web search backends ───────────────────────────────────────────────
+    # ddgs is the only keyless search backend, which makes it the fallback when
+    # a paid one lapses — this deployment lost its morning briefings when
+    # Firecrawl credits ran out. It was previously installed only by the
+    # interactive `post_setup` hook in its provider, so a rebuilt image came up
+    # without it and search broke again silently. Listing it here lets
+    # `ensure()` reinstall it on demand, like every other backend.
+    "search.ddgs": ("ddgs==9.15.0",),
     "search.exa": ("exa-py==2.10.2",),
     "search.firecrawl": ("firecrawl-py==4.17.0",),
     "search.parallel": ("parallel-web==0.4.2",),

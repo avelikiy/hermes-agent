@@ -61,10 +61,23 @@ class DDGSWebSearchProvider(WebSearchProvider):
         try:
             from ddgs import DDGS  # type: ignore
         except ImportError:
-            return {
-                "success": False,
-                "error": "ddgs package is not installed — run `pip install ddgs`",
-            }
+            # Self-heal instead of just reporting. This backend is what a
+            # deployment falls back to when a paid provider lapses, and it was
+            # previously installed only by the interactive setup hook — so a
+            # rebuilt image (or a config edited by hand) left search dead with
+            # nothing but advice in a log nobody reads. Same lazy install the
+            # other backends use; prompt=False because search runs unattended
+            # from cron.
+            try:
+                from tools.lazy_deps import ensure as _lazy_ensure
+
+                _lazy_ensure("search.ddgs", prompt=False)
+                from ddgs import DDGS  # type: ignore  # noqa: F811
+            except Exception:
+                return {
+                    "success": False,
+                    "error": "ddgs package is not installed — run `pip install ddgs`",
+                }
 
         # DDGS().text yields at most `max_results` items; we cap defensively
         # in case the package ignores the hint.
