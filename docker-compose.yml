@@ -39,7 +39,7 @@ services:
     # локально ПОД ЭТИМ ЖЕ ИМЕНЕМ, чтобы compose не пришлось править туда-сюда:
     #     docker build -t ghcr.io/avelikiy/hermes-agent:latest .
     # После починки биллинга: включить workflow и перейти на `compose pull`.
-    image: ghcr.io/avelikiy/hermes-agent:latest
+    image: us-central1-docker.pkg.dev/hermes-build-260824/hermes/hermes-agent:latest
     container_name: hermes
     # This is the live deployment again (the Hetzner one is retired).
     # Only ever run one gateway per bot token: two of them fight over
