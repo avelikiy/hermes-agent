@@ -943,6 +943,14 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
             argv,
             capture_output=True,
             text=True,
+            # errors="replace" — иначе один не-UTF-8 байт в выводе скрипта
+            # роняет обработку задачи. Скрипты триажа почты читают письма в
+            # чужих кодировках (windows-1251, latin-1) и легко отдают такое:
+            # здесь это уронило планировщик на 0xa3, и вместе с ним молча
+            # встали ВСЕ остальные задачи. Планировщик не должен зависеть от
+            # того, насколько чистый вывод у произвольного пользовательского
+            # скрипта.
+            errors="replace",
             timeout=script_timeout,
             cwd=str(path.parent),
             env=run_env,

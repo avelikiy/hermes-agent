@@ -48,7 +48,16 @@ def _module_registers_tools(module_path: Path) -> bool:
     try:
         source = module_path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(module_path))
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        # UnicodeDecodeError derives from ValueError, not OSError, so it slipped
+        # through and propagated all the way out of tool discovery — which runs
+        # during agent startup. One undecodable file in tools/ therefore killed
+        # every scheduled job with "'utf-8' codec can't decode byte 0xa3",
+        # silently taking down the whole cron scheduler. The culprits here were
+        # macOS AppleDouble "._*" files riding along in the image.
+        #
+        # A file we cannot read is simply not a module that registers tools;
+        # skipping it is the same answer as for a syntax error.
         return False
 
     return any(_is_registry_register_call(stmt) for stmt in tree.body)

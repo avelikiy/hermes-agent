@@ -46,3 +46,8 @@ backups/
 .beads/
 .great_cto/
 *.bak-*
+
+# macOS AppleDouble sidecars: not valid UTF-8, and tool discovery used to
+# crash on them, which silently killed the cron scheduler.
+._*
+.DS_Store
