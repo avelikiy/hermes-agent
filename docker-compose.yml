@@ -28,8 +28,14 @@
 #
 services:
   gateway:
-    build: .
-    image: hermes-agent
+    # Pulled, not built. A local build peaks at ~15 GB of disk on a machine
+    # that has run out more than once — and a full disk here takes Docker down
+    # and the agent with it. CI builds the same image natively on arm64 and
+    # this pulls it as a ~1 GB download.
+    #   обновить:  docker compose pull && docker compose up -d
+    #   собрать локально (если CI недоступен):
+    #     docker build -t ghcr.io/avelikiy/hermes-agent:latest .
+    image: ghcr.io/avelikiy/hermes-agent:latest
     container_name: hermes
     # This is the live deployment again (the Hetzner one is retired).
     # Only ever run one gateway per bot token: two of them fight over
