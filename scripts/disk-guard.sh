@@ -24,9 +24,14 @@ elif [[ -d /System/Volumes/Data ]]; then
 else
   VOLUME="/"
 fi
-WARN_GB="${DISK_GUARD_WARN_GB:-25}"
-CRIT_GB="${DISK_GUARD_CRIT_GB:-10}"
-QUIET_H="${DISK_GUARD_QUIET_H:-12}"
+# Defaults sized to the failure this guards against, not to a round number.
+# The outage happened at 767 MB free, where Docker could not create its VM; by
+# 4 GB there is no room to rebuild an image. 25/10 GB was guesswork and meant a
+# permanent warning on a laptop that normally sits at 12-20 GB free — a guard
+# that fires constantly is one you learn to ignore, which is worse than none.
+WARN_GB="${DISK_GUARD_WARN_GB:-8}"
+CRIT_GB="${DISK_GUARD_CRIT_GB:-4}"
+QUIET_H="${DISK_GUARD_QUIET_H:-24}"
 STATE="${DISK_GUARD_STATE:-$HERMES_HOME/disk-guard.state}"
 
 # `df -g` is a BSD-ism and silently absent on Linux; -k is POSIX everywhere, so
