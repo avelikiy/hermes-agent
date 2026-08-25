@@ -137,6 +137,22 @@ class TestReadForDisplay:
         # ...and the caller's own prompt is still intact.
         assert "Analyse it." in prompt
 
+    def test_tui_stdin_is_reconfigured_before_the_read_loop(self):
+        """tui_gateway/entry.py: decoding happens in the `for`, not the try.
+
+        `for raw in sys.stdin` decodes before any handler runs, so the
+        json.JSONDecodeError guard inside the loop could never catch a bad
+        byte — it killed the gateway process instead. Driving the real
+        main() would start MCP discovery, so this pins the call ordering.
+        """
+        import inspect
+
+        import tui_gateway.entry as entry_mod
+
+        src = inspect.getsource(entry_mod.main)
+        assert 'sys.stdin.reconfigure(errors="replace")' in src
+        assert src.index("reconfigure") < src.index("for raw in sys.stdin")
+
     def test_update_log_read_uses_replacement(self):
         """gateway/run.py: apt/pip/docker stdout is arbitrary bytes.
 

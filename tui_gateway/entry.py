@@ -271,6 +271,16 @@ def main():
         _log_exit("startup write failed (broken stdout pipe before first event)")
         sys.exit(0)
 
+    # Decoding happens in the `for` itself, outside the try below, so a single
+    # undecodable byte on the command pipe raised UnicodeDecodeError and killed
+    # the whole gateway process — the try only ever guarded json.loads.
+    # Replacing bad bytes turns that into an ordinary parse error, which this
+    # loop already knows how to answer.
+    try:
+        sys.stdin.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass  # not a reconfigurable text stream (e.g. replaced in tests)
+
     for raw in sys.stdin:
         line = raw.strip()
         if not line:
