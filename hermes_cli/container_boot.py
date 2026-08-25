@@ -226,7 +226,7 @@ def _read_prior_state(profile_dir: Path) -> str | None:
         return None
     try:
         return json.loads(state_file.read_text()).get("gateway_state")
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         log.warning(
             "could not read %s; treating as no prior state", state_file,
         )

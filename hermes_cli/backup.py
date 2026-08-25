@@ -613,7 +613,7 @@ def list_quick_snapshots(
             try:
                 with open(manifest_path, encoding="utf-8") as f:
                     results.append(json.load(f))
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
                 results.append({"id": d.name, "file_count": 0, "total_size": 0})
         if len(results) >= limit:
             break
@@ -692,7 +692,7 @@ def _count_cron_jobs(path: Path) -> Optional[int]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     if isinstance(data, dict):
         jobs = data.get("jobs", [])

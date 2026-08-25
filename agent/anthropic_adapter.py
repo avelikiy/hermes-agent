@@ -888,7 +888,7 @@ def read_claude_code_credentials() -> Optional[Dict[str, Any]]:
                         "expiresAt": oauth_data.get("expiresAt", 0),
                         "source": "claude_code_credentials_file",
                     }
-        except (json.JSONDecodeError, OSError, IOError) as e:
+        except (json.JSONDecodeError, OSError, IOError, UnicodeDecodeError) as e:
             logger.debug("Failed to read ~/.claude/.credentials.json: %s", e)
 
     return None

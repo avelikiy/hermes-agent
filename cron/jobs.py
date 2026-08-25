@@ -446,6 +446,21 @@ def load_jobs() -> List[Dict[str, Any]]:
     except IOError as e:
         logger.error("IOError reading jobs.json: %s", e)
         raise RuntimeError(f"Failed to read cron database: {e}") from e
+    except UnicodeDecodeError as e:
+        # UnicodeDecodeError subclasses ValueError, not OSError, so neither the
+        # JSONDecodeError arm nor the IOError arm above catches it. The raw
+        # codec error escaped load_jobs() — and since every scheduler tick calls
+        # this, one undecodable byte in jobs.json would take the entire cron
+        # subsystem down. Same class of bug that broke tool discovery in
+        # tools/registry.py and silently stopped all deliveries.
+        #
+        # Fail loudly rather than degrading: unlike a single unreadable module,
+        # an unreadable jobs.json means cron genuinely cannot run, and quietly
+        # returning [] would disable every schedule without ever saying so.
+        logger.error("jobs.json is not valid UTF-8: %s", e)
+        raise RuntimeError(
+            f"Cron database is not valid UTF-8 (corrupt, or not a jobs file): {e}"
+        ) from e
 
     # Validate the top-level JSON shape: accept a dict (expected) or a bare
     # list (auto-repair). Anything else (str/number/null) is corruption that

@@ -4246,7 +4246,7 @@ class FeishuAdapter(BasePlatformAdapter):
             payload = json.loads(self._dedup_state_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             logger.warning("[Feishu] Failed to load persisted dedup state from %s", self._dedup_state_path, exc_info=True)
             return
         seen_data = payload.get("message_ids", {}) if isinstance(payload, dict) else {}

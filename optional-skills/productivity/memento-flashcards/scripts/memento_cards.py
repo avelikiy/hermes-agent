@@ -47,7 +47,7 @@ def _load() -> dict:
         if not isinstance(data, dict) or "cards" not in data:
             return _empty_store()
         return data
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
         return _empty_store()
 
 

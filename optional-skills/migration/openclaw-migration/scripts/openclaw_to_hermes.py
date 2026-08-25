@@ -1635,7 +1635,7 @@ class Migrator:
                             secret_additions["OPENAI_API_KEY"] = api_key.strip()
                         elif "anthropic" in name_lower and "ANTHROPIC_API_KEY" not in secret_additions:
                             secret_additions["ANTHROPIC_API_KEY"] = api_key.strip()
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
                 pass
 
         if secret_additions:

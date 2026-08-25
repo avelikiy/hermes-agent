@@ -114,7 +114,7 @@ def _read_disk_cache(cache_key: _CacheKey, ttl_seconds: float,
     try:
         with open(path, "r", encoding="utf-8") as f:
             payload = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     if not isinstance(payload, dict):
         return None

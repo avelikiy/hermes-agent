@@ -3879,7 +3879,10 @@ def _(rid, params: dict) -> dict:
 
     try:
         payload = json.loads(resolved.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError is a ValueError, so the two arms it sat next to
+        # never caught it; a non-UTF-8 snapshot file crashed the RPC handler
+        # instead of returning an error to the caller.
         return _err(rid, 5000, f"spawn_tree.load failed: {exc}")
 
     return _ok(rid, payload)

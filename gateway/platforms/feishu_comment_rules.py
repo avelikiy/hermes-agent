@@ -94,7 +94,7 @@ class _MtimeCache:
                 data = json.load(f)
             if not isinstance(data, dict):
                 data = {}
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             logger.warning("[Feishu-Rules] Failed to read %s, using empty config", self._path)
             data = {}
 

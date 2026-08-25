@@ -15138,7 +15138,13 @@ class GatewayRunner:
                 # Read any remaining output
                 if output_path.exists():
                     try:
-                        content = output_path.read_text()
+                        # Update-process stdout is arbitrary subprocess output
+                        # (apt/pip/docker), so undecodable bytes are expected,
+                        # not exceptional — and `except OSError` below would not
+                        # catch the UnicodeDecodeError they raise. This text is
+                        # only echoed to the user, so replacing bad bytes shows
+                        # the log instead of killing the watcher task.
+                        content = output_path.read_text(errors="replace")
                         if len(content) > bytes_sent:
                             buffer += content[bytes_sent:]
                             bytes_sent = len(content)
@@ -15173,7 +15179,8 @@ class GatewayRunner:
             # Check for new output
             if output_path.exists():
                 try:
-                    content = output_path.read_text()
+                    # Same as above: subprocess output, shown not parsed.
+                    content = output_path.read_text(errors="replace")
                     if len(content) > bytes_sent:
                         buffer += content[bytes_sent:]
                         bytes_sent = len(content)
@@ -15304,7 +15311,11 @@ class GatewayRunner:
             # Read the captured update output
             output = ""
             if output_path.exists():
-                output = output_path.read_text()
+                # Subprocess stdout again. The enclosing `except Exception`
+                # meant bad bytes here didn't crash anything — they silently
+                # swallowed the whole "update finished" notification instead,
+                # so the user was never told the update completed.
+                output = output_path.read_text(errors="replace")
 
             # Resolve adapter
             platform = Platform(platform_str)

@@ -107,7 +107,7 @@ class PairingStore:
         if path.exists():
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
                 return {}
         return {}
 

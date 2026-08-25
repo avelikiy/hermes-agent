@@ -456,7 +456,7 @@ def extract_legacy_cache_skills():
         try:
             with open(filepath, encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             continue
 
         stem = filename.replace(".json", "")

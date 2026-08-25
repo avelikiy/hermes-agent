@@ -328,7 +328,7 @@ def _read_manifest(snap_dir: Path) -> Dict[str, Any]:
         return {}
     try:
         return json.loads(mf.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return {}
 
 
@@ -420,7 +420,7 @@ def _restore_cron_skill_links(snapshot_dir: Path) -> Dict[str, Any]:
     try:
         backup_text = backup_file.read_text(encoding="utf-8")
         backup_parsed = json.loads(backup_text)
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
         report["error"] = f"failed to load backed-up jobs: {e}"
         return report
     # jobs.json on disk is `{"jobs": [...], "updated_at": ...}`; accept both

@@ -215,7 +215,7 @@ def _read_pyproject_version() -> str | None:
     pyproject = PROJECT_ROOT / "pyproject.toml"
     try:
         text = pyproject.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
     in_project = False
     for raw in text.splitlines():

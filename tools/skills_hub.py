@@ -846,7 +846,7 @@ class GitHubSource(SkillSource):
             if time.time() - stat.st_mtime > INDEX_CACHE_TTL:
                 return None
             return json.loads(cache_file.read_text())
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             return None
 
     def _write_cache(self, key: str, data: list) -> None:
@@ -2976,7 +2976,7 @@ def _read_index_cache(key: str) -> Optional[Any]:
         if time.time() - stat.st_mtime > INDEX_CACHE_TTL:
             return None
         return json.loads(cache_file.read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 
@@ -3029,7 +3029,7 @@ class HubLockFile:
             return {"version": 1, "installed": {}}
         try:
             return json.loads(self.path.read_text())
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             return {"version": 1, "installed": {}}
 
     def save(self, data: dict) -> None:
@@ -3102,7 +3102,7 @@ class TapsManager:
         try:
             data = json.loads(self.path.read_text())
             return data.get("taps", [])
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             return []
 
     def save(self, taps: List[dict]) -> None:
@@ -3410,7 +3410,7 @@ def _load_hermes_index() -> Optional[dict]:
             age = time.time() - HERMES_INDEX_CACHE_FILE.stat().st_mtime
             if age < HERMES_INDEX_TTL:
                 return json.loads(HERMES_INDEX_CACHE_FILE.read_text())
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             pass
 
     # Fetch from docs site
@@ -3443,7 +3443,7 @@ def _load_stale_index_cache() -> Optional[dict]:
     if HERMES_INDEX_CACHE_FILE.exists():
         try:
             return json.loads(HERMES_INDEX_CACHE_FILE.read_text())
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             pass
     return None
 

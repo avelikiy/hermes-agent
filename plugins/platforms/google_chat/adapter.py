@@ -699,7 +699,7 @@ class GoogleChatAdapter(BasePlatformAdapter):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             return data.get("bot_user_id") or None
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             return None
 
     def _save_cached_bot_id(self, bot_user_id: str) -> None:

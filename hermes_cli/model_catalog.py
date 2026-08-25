@@ -209,7 +209,7 @@ def _read_disk_cache() -> tuple[dict[str, Any] | None, float]:
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return (None, 0.0)
     if not _validate_manifest(data):
         return (None, 0.0)

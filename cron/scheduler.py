@@ -1078,7 +1078,12 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
                 )
                 if not output_files:
                     continue  # silent skip — no output yet
-                latest_output = output_files[0].read_text(encoding="utf-8").strip()
+                # A prior job's output is script stdout, so it can contain
+                # undecodable bytes. It is pasted into a prompt as context,
+                # never parsed — replacing them keeps the context usable.
+                latest_output = output_files[0].read_text(
+                    encoding="utf-8", errors="replace",
+                ).strip()
                 # Truncate to 8K characters to avoid prompt bloat
                 _MAX_CONTEXT_CHARS = 8000
                 if len(latest_output) > _MAX_CONTEXT_CHARS:
@@ -1093,7 +1098,10 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
                     )
                 else:
                     continue  # silent skip — empty output
-            except (OSError, PermissionError) as e:
+            except (OSError, PermissionError, UnicodeDecodeError) as e:
+                # UnicodeDecodeError listed explicitly: it is a ValueError, so
+                # the OSError arm never caught it. Missing context is worth a
+                # warning; it must not abort the job that asked for it.
                 logger.warning("context_from: failed to read output for job %r: %s", source_job_id, e)
                 # silent skip — do not pollute the prompt with error messages
 
