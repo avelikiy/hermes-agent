@@ -26,17 +26,27 @@ cd "$REPO_DIR" 2>/dev/null || { echo "beads-sync: no repo at $REPO_DIR" >&2; exi
 
 command -v bd >/dev/null 2>&1 || { echo "beads-sync: bd not on PATH" >&2; exit 1; }
 
-before=$(git ls-remote "$(bd dolt remote list 2>/dev/null | awk 'NR==1{sub(/^git\+/,"",$2); print $2}')" \
-         refs/dolt/data 2>/dev/null | awk '{print $1}')
+# Change detection has to work for both remote kinds. A git+https remote keeps
+# refs/dolt/data, which `git ls-remote` can read; a file:// remote is a plain
+# directory of Dolt .darc chunks with no git refs at all, so ls-remote returns
+# nothing and every run looked like "no change" even when it had just pushed.
+# Fingerprint whatever the remote actually is instead.
+REMOTE_URL="$(bd dolt remote list 2>/dev/null | awk 'NR==1{sub(/^git\+/,"",$2); print $2}')"
+fingerprint() {
+  case "$REMOTE_URL" in
+    file://*) find "${REMOTE_URL#file://}" -name '*.darc' -newer /dev/null -exec ls -l {} + 2>/dev/null | md5 2>/dev/null || echo none ;;
+    *)        git ls-remote "$REMOTE_URL" refs/dolt/data 2>/dev/null | awk '{print $1}' ;;
+  esac
+}
+
+before="$(fingerprint)"
 
 if ! out=$(bd dolt push 2>&1); then
   echo "beads-sync: push failed: $out" >&2
   exit 1
 fi
 
-# Report only when something actually moved, so the log stays readable.
-after=$(git ls-remote "$(bd dolt remote list 2>/dev/null | awk 'NR==1{sub(/^git\+/,"",$2); print $2}')" \
-        refs/dolt/data 2>/dev/null | awk '{print $1}')
+after="$(fingerprint)"
 if [[ "$before" != "$after" ]]; then
-  echo "beads-sync: pushed ($(date '+%F %T')) ${before:0:8} -> ${after:0:8}"
+  echo "beads-sync: pushed ($(date '+%F %T')) -> ${REMOTE_URL}"
 fi

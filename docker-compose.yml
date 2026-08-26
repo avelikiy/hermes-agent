@@ -70,6 +70,15 @@ services:
       # access is scoped to exactly this subtree. It is under git, so its
       # edits stay reversible.
       - ~/Obsidian/AI-OS:/opt/obsidian/vault/AI-OS
+      # Local private store (~/development/hermes): custom skills, cron job
+      # definitions, config and wrapper scripts, versioned by a local git repo
+      # with no remote. Deliberately not a cloud repository — the material is a
+      # career profile, mail-triage rules and the shape of this deployment, and
+      # a *private* remote would still be an off-machine copy.
+      #
+      # Read-only: ~/.hermes stays the live working directory the agent writes
+      # to, and this is the durable mirror it must not be able to rewrite.
+      - ~/development/hermes:/opt/store:ro
     deploy:
       resources:
         limits:
