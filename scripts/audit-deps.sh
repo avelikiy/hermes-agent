@@ -41,5 +41,21 @@ if not hits:
     raise SystemExit(0)
 for name, ver, vid in sorted(hits):
     print(f"  VULNERABLE  {name}=={ver}  {vid}  https://osv.dev/vulnerability/{vid}")
+
+# Deliberately NOT reporting a "minimum safe version" derived from the fixed
+# events. An advisory with no fix contributes no version, so taking the maximum
+# of the ones that do have a fix silently ignores exactly the advisories that
+# cannot be fixed by upgrading — and reports a version that is still vulnerable
+# as if it were clean. That happened: hermes-agent 0.18.0 was computed as the
+# safe floor while two advisories still applied to it.
+#
+# The only trustworthy way to name a safe version is to query candidate versions
+# until one comes back with zero advisories, which needs the version list the
+# caller is actually willing to move to.
+print()
+print("To find a safe version, query candidates directly rather than reading")
+print("'fixed' fields — advisories with no fix are invisible to that arithmetic:")
+print("  curl -s -XPOST https://api.osv.dev/v1/query -d "
+      "'{\"package\":{\"name\":\"NAME\",\"ecosystem\":\"PyPI\"},\"version\":\"X.Y.Z\"}'")
 raise SystemExit(1)
 PY
