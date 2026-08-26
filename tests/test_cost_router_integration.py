@@ -1,7 +1,11 @@
-"""Integration tests for the cost-router wire in AIAgent.run_conversation.
+"""Integration tests for the cost-router wire in AIAgent.
 
-These exercise the forwarder glue (route → override self.model → restore) with
-a stub `self` and a monkeypatched conversation loop — no real LLM calls.
+The router hooks ``AIAgent._run_turn_with_cost_router``, which upstream's
+``run_conversation`` calls from inside the durable session-turn lease and the
+open relay turn — so an escalation retry is a second pass of the SAME logical
+turn rather than a second turn. These tests exercise that glue (route →
+override self.model → restore → record outcome) with a stub `self` and a
+monkeypatched conversation loop — no real LLM calls, and no relay/lease setup.
 """
 
 from __future__ import annotations
@@ -19,6 +23,19 @@ def _ladder():
         LadderEntry("flash", 0.1, Tier.SIMPLE),
         LadderEntry("opus", 15.0, Tier.HARD),
     ]
+
+
+def _drive(stub, message, persist=True):
+    """Call the router seam the way run_conversation does."""
+    import agent.conversation_loop as cl
+
+    def run_turn(_persist):
+        # Looked up on the module at call time so monkeypatching works.
+        return cl.run_conversation(stub, message, None, None, None, None, _persist)
+
+    return run_agent.AIAgent._run_turn_with_cost_router(
+        stub, message, run_turn, persist
+    )
 
 
 def _stub(router):
@@ -46,7 +63,7 @@ def record_loop(monkeypatch):
 
 def test_disabled_router_does_not_touch_model(record_loop):
     stub = _stub(None)
-    out = run_agent.AIAgent.run_conversation(stub, "what is 2+2")
+    out = _drive(stub, "what is 2+2")
     assert out["final_response"] == "ok"
     assert record_loop["model_at_call"] == "opus"  # unchanged
     assert stub.model == "opus"
@@ -54,14 +71,14 @@ def test_disabled_router_does_not_touch_model(record_loop):
 
 def test_simple_task_routes_to_cheap_and_restores(record_loop):
     stub = _stub(CostRouter(ladder=_ladder()))
-    run_agent.AIAgent.run_conversation(stub, "what is 2+2")
+    _drive(stub, "what is 2+2")
     assert record_loop["model_at_call"] == "flash"  # routed cheap during turn
     assert stub.model == "opus"  # restored after
 
 
 def test_hard_task_stays_on_flagship(record_loop):
     stub = _stub(CostRouter(ladder=_ladder()))
-    run_agent.AIAgent.run_conversation(stub, "refactor the whole architecture")
+    _drive(stub, "refactor the whole architecture")
     # routed == original "opus" → no override needed
     assert record_loop["model_at_call"] == "opus"
     assert stub.model == "opus"
@@ -76,7 +93,7 @@ def test_model_restored_even_on_exception(monkeypatch):
 
     stub = _stub(CostRouter(ladder=_ladder()))
     with pytest.raises(RuntimeError):
-        run_agent.AIAgent.run_conversation(stub, "what is 2+2")
+        _drive(stub, "what is 2+2")
     assert stub.model == "opus"  # restored despite the failure
 
 
@@ -93,7 +110,7 @@ def test_outcome_is_recorded(monkeypatch, tmp_path):
     monkeypatch.setattr(cl, "run_conversation", fake)
 
     stub = _stub(router)
-    run_agent.AIAgent.run_conversation(stub, "what is 2+2")
+    _drive(stub, "what is 2+2")
     assert log.exists()
     assert '"model": "flash"' in log.read_text()
     assert '"success": true' in log.read_text()
@@ -147,7 +164,7 @@ def _run(monkeypatch, router, results):
 
     import agent.conversation_loop as cl
     monkeypatch.setattr(cl, "run_conversation", fake_run_conversation)
-    out = run_agent.AIAgent.run_conversation(_stub(router), "нужен ответ")
+    out = _drive(_stub(router), "нужен ответ")
     return calls, out
 
 
@@ -223,7 +240,7 @@ def test_crash_is_recorded_as_failure(monkeypatch, tmp_path):
     import agent.conversation_loop as cl
     monkeypatch.setattr(cl, "run_conversation", boom)
     with pytest.raises(RuntimeError):
-        run_agent.AIAgent.run_conversation(_stub(router), "hi")
+        _drive(_stub(router), "hi")
 
     rows = [json.loads(l) for l in router.log_path.read_text().splitlines() if l.strip()]
     assert rows[-1]["success"] is False

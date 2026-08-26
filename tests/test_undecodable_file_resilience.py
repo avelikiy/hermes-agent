@@ -138,20 +138,27 @@ class TestReadForDisplay:
         assert "Analyse it." in prompt
 
     def test_tui_stdin_is_reconfigured_before_the_read_loop(self):
-        """tui_gateway/entry.py: decoding happens in the `for`, not the try.
+        """tui_gateway/entry.py: decoding happens in the read, not the try.
 
-        `for raw in sys.stdin` decodes before any handler runs, so the
+        The command-pipe read decodes before any handler runs, so the
         json.JSONDecodeError guard inside the loop could never catch a bad
         byte — it killed the gateway process instead. Driving the real
         main() would start MCP discovery, so this pins the call ordering.
+
+        The read itself has changed shape upstream (``for raw in sys.stdin``
+        became ``sys.stdin.readline()`` inside a while loop), so match the
+        read generically rather than pinning one spelling of it.
         """
         import inspect
+        import re
 
         import tui_gateway.entry as entry_mod
 
         src = inspect.getsource(entry_mod.main)
         assert 'sys.stdin.reconfigure(errors="replace")' in src
-        assert src.index("reconfigure") < src.index("for raw in sys.stdin")
+        read = re.search(r"for raw in sys\.stdin|sys\.stdin\.readline\(", src)
+        assert read, "stdin read site disappeared — retarget this test"
+        assert src.index("reconfigure") < read.start()
 
     def test_update_log_read_uses_replacement(self):
         """gateway/run.py: apt/pip/docker stdout is arbitrary bytes.
@@ -159,15 +166,33 @@ class TestReadForDisplay:
         The streaming update watcher is an async loop over a live subprocess
         with no seam to call directly, so this pins the decision at the call
         site instead of leaving it untested.
+
+        Upstream now routes the streaming reads through a
+        ``_read_output_since`` helper that reads bytes and decodes with
+        replacement, and the final read through ``read_bytes().decode(...)``.
+        Either spelling satisfies the invariant; a strict decode of the update
+        log does not.
         """
         import inspect
 
         import gateway.run as run_mod
 
         src = inspect.getsource(run_mod)
-        reads = [
+        strict_reads = [
             line.strip() for line in src.splitlines()
             if "output_path.read_text(" in line
+            and 'errors="replace"' not in line
         ]
-        assert reads, "update-watcher read sites disappeared — retarget this test"
-        assert all('errors="replace"' in line for line in reads), reads
+        assert not strict_reads, strict_reads
+
+        decoded = [
+            line.strip() for line in src.splitlines()
+            if 'output_path.read_bytes().decode(' in line
+        ]
+        helper = 'def _read_output_since(' in src and (
+            'errors="replace"' in inspect.getsource(run_mod)
+        )
+        assert decoded or helper, (
+            "update-watcher read sites disappeared — retarget this test"
+        )
+        assert all('errors="replace"' in line for line in decoded), decoded
