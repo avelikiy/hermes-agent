@@ -127,3 +127,25 @@ services:
       # - GOOGLE_CHAT_SERVICE_ACCOUNT_JSON=${GOOGLE_CHAT_SERVICE_ACCOUNT_JSON}
       # - GOOGLE_CHAT_ALLOWED_USERS=${GOOGLE_CHAT_ALLOWED_USERS}
     command: ["gateway", "run"]
+    healthcheck:
+      # Two signals, because neither alone is honest. `pgrep` proves the gateway
+      # process exists; the dashboard request proves the supervised tree still
+      # serves rather than merely existing. A hung process passes the first and
+      # fails the second.
+      #
+      # Deliberately NOT based on /opt/data/gateway_state.json: that file is
+      # written on state transitions, not as a heartbeat, and it was observed
+      # naming a pid two process-generations old while reporting every platform
+      # "connected". A health probe that reads stale state reports health that
+      # stopped being true hours ago.
+      #
+      # The [h] is load-bearing, not a typo. `pgrep -f 'hermes gateway run'`
+      # also matches the shell running this very probe — its own command line
+      # contains the pattern — so that half of the check passed unconditionally
+      # and tested nothing. The bracket makes the regex match the gateway while
+      # the probe's own literal command line no longer matches it.
+      test: ["CMD-SHELL", "pgrep -f '[h]ermes gateway run' >/dev/null && curl -fsS --max-time 8 http://127.0.0.1:9119/ >/dev/null"]
+      interval: 60s
+      timeout: 15s
+      start_period: 120s
+      retries: 3
