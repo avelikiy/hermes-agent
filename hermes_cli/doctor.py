@@ -607,7 +607,18 @@ def run_doctor(args):
         # written as UTF-8 everywhere in the codebase, while Path.read_text()
         # defaults to the system locale — which crashes on non-UTF-8 Windows
         # locales (e.g. GBK) as soon as the file contains any non-ASCII byte.
-        content = env_path.read_text(encoding="utf-8")
+        try:
+            content = env_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            # Pinning UTF-8 above removed a locale-dependent crash and introduced
+            # this one, unguarded: a .env holding a single stray byte now raises
+            # here — so `hermes doctor`, the command you run precisely when
+            # things are already broken, died instead of reporting the problem.
+            # Report it and keep going; a bad byte elsewhere in the file must not
+            # hide whether an API key is configured.
+            check_warn(f"{_DHH}/.env is not valid UTF-8: {exc}")
+            issues.append(f"Re-save {_DHH}/.env as UTF-8")
+            content = env_path.read_text(encoding="utf-8", errors="replace")
         if _has_provider_env_config(content):
             check_ok("API key or custom endpoint configured")
         else:

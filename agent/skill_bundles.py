@@ -121,7 +121,10 @@ def _load_bundle_file(path: Path) -> Optional[Dict[str, Any]]:
     """
     try:
         raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError is a ValueError, so `except OSError` never caught it
+        # and it escaped past the docstring's promise directly above that a
+        # broken bundle must not take down slash command discovery.
         logger.warning("Could not read bundle %s: %s", path, exc)
         return None
     try:
