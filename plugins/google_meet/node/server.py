@@ -67,7 +67,7 @@ class NodeServer:
                 if isinstance(tok, str) and tok:
                     self._token = tok
                     return tok
-            except (OSError, json.JSONDecodeError):
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
                 pass
         tok = secrets.token_hex(16)  # 32 hex chars
         self.token_path.parent.mkdir(parents=True, exist_ok=True)

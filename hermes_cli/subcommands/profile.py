@@ -35,17 +35,17 @@ def build_profile_parser(subparsers, *, cmd_profile: Callable) -> None:
     profile_create.add_argument(
         "--clone",
         action="store_true",
-        help="Copy config.yaml, .env, SOUL.md from active profile",
+        help="Copy config.yaml, .env, SOUL.md, and skills from active profile",
     )
     profile_create.add_argument(
         "--clone-all",
         action="store_true",
-        help="Full copy of active profile (all state)",
+        help="Full copy of active profile (all state, excluding per-profile history)",
     )
     profile_create.add_argument(
         "--clone-from",
         metavar="SOURCE",
-        help="Source profile to clone from (default: active)",
+        help="Source profile to clone from; implies --clone unless --clone-all is set",
     )
     profile_create.add_argument(
         "--no-alias", action="store_true", help="Skip wrapper script creation"
@@ -120,9 +120,15 @@ def build_profile_parser(subparsers, *, cmd_profile: Callable) -> None:
         help="Custom alias name (default: profile name)",
     )
 
-    profile_rename = profile_subparsers.add_parser("rename", help="Rename a profile")
+    profile_rename = profile_subparsers.add_parser(
+        "rename",
+        help="Rename a profile ('default': sets a display name; id unchanged)",
+    )
     profile_rename.add_argument("old_name", help="Current profile name")
-    profile_rename.add_argument("new_name", help="New profile name")
+    profile_rename.add_argument(
+        "new_name",
+        help="New profile name (for 'default': a display name — the canonical id stays 'default')",
+    )
 
     profile_export = profile_subparsers.add_parser(
         "export", help="Export a profile to archive"

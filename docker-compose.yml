@@ -28,16 +28,93 @@
 #
 services:
   gateway:
-    build: .
-    image: hermes-agent
+    # Pulled, not built. A local build peaks at ~15 GB of disk on a machine
+    # that has run out more than once — and a full disk here takes Docker down
+    # and the agent with it. CI builds the same image natively on arm64 and
+    # this pulls it as a ~1 GB download.
+    #   обновить:  docker compose pull && docker compose up -d
+    #
+    # ПОКА CI НЕ РАБОТАЕТ (у аккаунта GitHub проблема с оплатой — Actions
+    # заблокированы, workflow fork-image.yml не запускается) образ собирается
+    # локально ПОД ЭТИМ ЖЕ ИМЕНЕМ, чтобы compose не пришлось править туда-сюда:
+    #     docker build -t ghcr.io/avelikiy/hermes-agent:latest .
+    # После починки биллинга: включить workflow и перейти на `compose pull`.
+    image: us-central1-docker.pkg.dev/hermes-build-260824/hermes/hermes-agent:latest
     container_name: hermes
+    # This is the live deployment again (the Hetzner one is retired).
+    # Only ever run one gateway per bot token: two of them fight over
+    # getUpdates, which this repo has already had to fix once.
     restart: unless-stopped
-    network_mode: host
+    # Bridge networking (not host): on Docker Desktop for macOS, host mode
+    # binds into the Linux VM, so a dashboard on the VM's loopback is
+    # unreachable from the Mac. Bridge + an explicit port publish fixes that.
+    # Outbound platform connections (Telegram/email/feishu) work fine on bridge.
+    # The publish is pinned to 127.0.0.1, so the dashboard is reachable ONLY
+    # from this Mac's loopback — same trust boundary as the old localhost bind.
+    ports:
+      - "127.0.0.1:9119:9119"
     volumes:
       - ~/.hermes:/opt/data
+      # Obsidian knowledge base. SOUL.md tells the agent to search here before
+      # answering anything about Alexander's projects and decisions, and to
+      # treat it as read-only — but that was only ever a request in a prompt,
+      # and after the migration the path did not exist in the container at all,
+      # so the instruction pointed at nothing.
+      #
+      # Mounting it :ro turns the request into an actual boundary: 2787 notes
+      # of personal and fund material the agent can read and cannot damage,
+      # enforced by the kernel rather than by the model's good behaviour.
+      - ~/Obsidian:/opt/obsidian/vault:ro
+      # ...except AI-OS, the agent's own workspace, which it is supposed to
+      # write to. A nested mount overrides the read-only parent, so write
+      # access is scoped to exactly this subtree. It is under git, so its
+      # edits stay reversible.
+      - ~/Obsidian/AI-OS:/opt/obsidian/vault/AI-OS
+      # Local private store (~/development/hermes): custom skills, cron job
+      # definitions, config and wrapper scripts, versioned by a local git repo
+      # with no remote. Deliberately not a cloud repository — the material is a
+      # career profile, mail-triage rules and the shape of this deployment, and
+      # a *private* remote would still be an off-machine copy.
+      #
+      # Read-only: ~/.hermes stays the live working directory the agent writes
+      # to, and this is the durable mirror it must not be able to rewrite.
+      - ~/development/hermes:/opt/store:ro
+    deploy:
+      resources:
+        limits:
+          # Kept from the server deployment: this bounds a runaway agent to a
+          # slice of the laptop rather than all of it. Measured usage in
+          # production was ~740 MB, so 2G is headroom, not a squeeze.
+          cpus: "2.0"
+          memory: 3G
+    logging:
+      # Uncapped container logs are a slow version of the disk-full failure
+      # that took this machine down once already.
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
+      # Dashboard runs as an s6 service INSIDE this container (localhost-only).
+      # This replaces the former separate `dashboard` container, which — because
+      # the per-profile gateway reconciler runs in every container over the
+      # shared ~/.hermes volume — booted a second full gateway and polled
+      # Telegram with the same bot token, causing permanent `getUpdates`
+      # conflicts. One container = one gateway = one poller.
+      # Bind 0.0.0.0 inside the container so the published port (above)
+      # can reach it; access is still restricted to this Mac's loopback by
+      # the 127.0.0.1 publish. INSECURE=1 is required because the dashboard's
+      # auth gate fails closed on a non-loopback bind when no auth provider is
+      # registered — here the network-level 127.0.0.1 publish is the guard.
+      # SOUL.md refers to this as the agent's read-write vault; it was empty,
+      # so the obsidian skill had nowhere to write.
+      - OBSIDIAN_VAULT_PATH=/opt/obsidian/vault/AI-OS
+      - HERMES_DASHBOARD=1
+      - HERMES_DASHBOARD_HOST=0.0.0.0
+      - HERMES_DASHBOARD_PORT=9119
+      - HERMES_DASHBOARD_INSECURE=1
       # To expose the OpenAI-compatible API server beyond localhost,
       # uncomment BOTH lines (API_SERVER_KEY is mandatory for auth):
       # - API_SERVER_HOST=0.0.0.0
@@ -59,18 +136,25 @@ services:
       # - GOOGLE_CHAT_SERVICE_ACCOUNT_JSON=${GOOGLE_CHAT_SERVICE_ACCOUNT_JSON}
       # - GOOGLE_CHAT_ALLOWED_USERS=${GOOGLE_CHAT_ALLOWED_USERS}
     command: ["gateway", "run"]
-
-  dashboard:
-    image: hermes-agent
-    container_name: hermes-dashboard
-    restart: unless-stopped
-    network_mode: host
-    depends_on:
-      - gateway
-    volumes:
-      - ~/.hermes:/opt/data
-    environment:
-      - HERMES_UID=${HERMES_UID:-10000}
-      - HERMES_GID=${HERMES_GID:-10000}
-    # Localhost-only. For remote access, tunnel via `ssh -L 9119:localhost:9119`.
-    command: ["dashboard", "--host", "127.0.0.1", "--no-open"]
+    healthcheck:
+      # Two signals, because neither alone is honest. `pgrep` proves the gateway
+      # process exists; the dashboard request proves the supervised tree still
+      # serves rather than merely existing. A hung process passes the first and
+      # fails the second.
+      #
+      # Deliberately NOT based on /opt/data/gateway_state.json: that file is
+      # written on state transitions, not as a heartbeat, and it was observed
+      # naming a pid two process-generations old while reporting every platform
+      # "connected". A health probe that reads stale state reports health that
+      # stopped being true hours ago.
+      #
+      # The [h] is load-bearing, not a typo. `pgrep -f 'hermes gateway run'`
+      # also matches the shell running this very probe — its own command line
+      # contains the pattern — so that half of the check passed unconditionally
+      # and tested nothing. The bracket makes the regex match the gateway while
+      # the probe's own literal command line no longer matches it.
+      test: ["CMD-SHELL", "pgrep -f '[h]ermes gateway run' >/dev/null && curl -fsS --max-time 8 http://127.0.0.1:9119/ >/dev/null"]
+      interval: 60s
+      timeout: 15s
+      start_period: 120s
+      retries: 3

@@ -58,7 +58,7 @@ class Watermark:
                 wm._data = json.loads(wm._path.read_text(encoding="utf-8"))
                 wm._data.setdefault("seen_ids", [])
                 wm._data["first_run"] = False
-            except (OSError, json.JSONDecodeError):
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
                 # Corrupt state file — treat as a first run but don't crash.
                 wm._data = {"seen_ids": [], "first_run": True}
         return wm
